@@ -1,0 +1,163 @@
+<?php
+/************************************************************/
+/************************************************************/
+/************** TWIDOO by FRANZ WILDING - 2008 **************/
+/********** MORE INFOS at twidoo.frant-wilding.eu ***********/
+/************************************************************/
+/************************************************************/
+
+
+
+/********** TWIDOO _ DATAMANAGEMENT *************/
+class twidoo_datamanagement {
+	
+	var $path;
+	var $page;
+	var $databaseTable;
+	var $columnObjects;
+	var $outputObjects;
+	var $curItem;
+	var $curOutput;
+	var $defaultOutput;
+	var $curColumn;
+	var $indexColumn;
+	var $errors;
+	var $warnings;
+	var $successes;	
+	
+	function twidoo_datamanagement($databaseTable='')
+	{
+		$geturi = new twidoo_urlencode;
+		$path = $geturi->getPath();
+		$page = $geturi->getPage();
+		
+		$this->columnObjects = array();
+		$this->databaseTable = $databaseTable;
+		
+		$this->warnings = array();
+		$this->errors = array();
+		$this->successes = array();
+	}
+	
+	function addColumn($data_columnObject)
+	{
+		$this->columnObjects[$data_columnObject->DBname] = $data_columnObject;
+		$this->curColumn = 	$data_columnObject->DBname;
+	}
+	
+	function addOutput($outputObject)
+	{
+		$this->outputObjects[$outputObject->name] = $outputObject;
+		$this->curOutput = $outputObject->name;
+	}
+	
+	function setDefaultOutput($default)
+	{
+		$this->defaultOutput = $default;
+	}
+	
+	function getSiteOutput()
+	{
+		foreach($this->outputObjects as $key => $output)
+		{
+			if(array_key_exists('site', $_POST) && $output->name == $_POST['site'])
+			{
+				return $key;
+			}
+		}
+
+		return $this->defaultOutput;		
+	}
+	
+	function setIndexColumn($id)
+	{
+		$this->indexColumn = $id;
+	}
+	
+	function addError($error)
+	{
+		array_push($this->errors, $error);
+	}
+	
+	function addSuccess($success)
+	{
+		array_push($this->successes, $success);
+	}
+	
+	function addWarning($warning)
+	{
+		array_push($this->warnings, $warning);
+	}
+	
+	//gibt das aktuelle Outputobject komplett aus
+	function getOutput($index='')
+	{
+		//wenn nicht anders angegeben, wird das aktuelle Output objekt genommen
+		if($index == '')
+			$curOutput = $this->getSiteOutput();
+		else
+			$curOutput = $index;
+
+		if(array_key_exists($curOutput, $this->outputObjects))
+		{		
+			//die Spalten werden an das Outputobjekt Ÿbergeben
+			$this->outputObjects[$curOutput]->columns = $this->columnObjects;
+			//hier die Datenbanktabelle
+			$this->outputObjects[$curOutput]->databaseTable = $this->databaseTable;
+			//und hier die Spalte, die das index darstellt
+			$this->outputObjects[$curOutput]->indexColumn = $this->indexColumn;
+			//dieses Objekt wird auch Ÿbergeben
+			$this->outputObjects[$curOutput]->dataMAObject = $this;
+				
+			return $this->outputObjects[$curOutput]->getOutput();
+		}
+		else
+		{
+			return "";
+		}
+	}
+
+}
+
+
+
+
+
+
+
+
+
+/********** DATA_COLUMN ***********/
+class data_column
+{
+	var $DBname;
+	var $showName;
+	var $type;
+	var $values;
+	var $show;
+	var $edit;
+	var $required;
+
+	function data_column()
+	{
+		$this->values = array();
+		$this->show = true;
+		$this->edit = true;
+		$this->required = false;
+	}
+	
+	function addValue($value='', $valwithkey='')
+	{
+		if($value != '')
+		{
+			if($valwithkey != '')
+				$this->values[$value] = $valwithkey;
+			else
+				array_push($this->values, $value);
+		}
+	}
+
+}
+
+
+?>

@@ -1,0 +1,694 @@
+<?php
+/*
+
+	Twidoo Output 
+	---------------
+
+	@file 		twidoo.output.inc.php
+	@version 	1.0.0b
+	@date 		2009-01-03 09:15:47 +0100 (Sat, 3 Jan 2009)
+	@author 	Franz Wilding <mail@franz-wilding.eu>
+
+	Copyright (c) 2009 Franz Wilding <>
+
+*/
+
+/*
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	THIS SOFTWARE AND DOCUMENTATION IS PROVIDED "AS IS," AND COPYRIGHT
+	HOLDERS MAKE NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED,
+	INCLUDING BUT NOT LIMITED TO, WARRANTIES OF MERCHANTABILITY OR
+	FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE SOFTWARE
+	OR DOCUMENTATION WILL NOT INFRINGE ANY THIRD PARTY PATENTS,
+	COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.COPYRIGHT HOLDERS WILL NOT
+	BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL
+	DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENTATION.
+
+	You should have received a copy of the GNU General Public License
+	along with this program. If not, see <http://gnu.org/licenses/>.
+
+*/
+
+class twidoo_output
+{
+	
+	var $type;
+	var $limit;
+	var $name;
+	var $values;
+	var $sortAble;
+	var $where;
+	
+	var $columns;
+	var $databaseTable;
+	var $template;
+	var $indexColumn;
+	var $strings;
+	var $dataMAObject;
+
+	function twidoo_output($name)
+	{
+		$this->name = $name;
+		$this->limit = 10;
+		$this->values = array('showAddButton' => true);
+		$this->template = '';
+		$this->strings = array();
+		$this->where = "";
+	}
+	
+	function addValue($key, $value)
+	{
+		$this->values[$key] = $value;
+	}
+	
+	function definString($key, $value)
+	{
+		$this->strings[$key] = $value;
+	}
+	
+	function getOutput()
+	{
+		global $TWIDOO;
+		
+		if($this->type != '')
+			$switch = $this->type;
+		else
+			$switch = $this->name;
+		
+		//den path bekommen
+		$getPath = new twidoo_urlencode;
+		$path = $getPath->getPath();
+				
+		switch($switch)
+		{
+		
+		
+			/*********** CASE DATAILIST ***************/
+			case 'datalist': 
+				
+				$list = new Smarty;
+				
+				
+				/*************************** NAVIGATION *************************/
+				// zuerst checken wir mal alles fŸr das Limit, damit wir auch wirklich nur die Daten aus der DB holen, die jetzt gerade angezeigt werden
+				$getCount = new twidoo_sql;
+				$getCount->setQuery('SELECT count('.$this->indexColumn.') AS count FROM '.$this->databaseTable);
+				$getCount->execute();
+
+				//wenn wir einen fehler haben
+				if($getCount->getError() != '')
+					$this->dataMAObject->addError('Databaseerror: '.$getCount->getError());
+				
+				//so ist es am Anfang, wenn noch nichts bei der Navigation gedrŸckt wurde
+				$lstart = 1;
+				$lend = $this->limit;
+				
+				//wenn dann auf weiter oder zurŸck geklickt wurde, muss ich das auch auswerten
+				if(array_key_exists('ListShow', $_POST) && $_POST['ListShow'] == 'next')
+				{
+					$lstart = $_POST['lstart']+$this->limit;
+					$lend = $_POST['lend']+$this->limit;
+				}	
+				elseif(array_key_exists('ListShow', $_POST) && $_POST['ListShow'] == 'last')
+				{
+					$lstart = $_POST['lstart']-$this->limit;
+					$lend = $_POST['lend']-$this->limit;
+				}
+				
+				/*************************** GET CONTENT *************************/
+				// content aus der Datenbank holen
+				$getContent = new twidoo_sql;
+				
+				// mal schauen, was wir alles fŸr spalten haben
+				$whatToSelect = '';
+				foreach($this->columns as $column)
+				{
+					switch($column->type)
+					{
+						case 'date': $whatToSelect .= 'UNIX_TIMESTAMP('.$column->DBname.') as '.$column->DBname.', ';
+							break;
+						
+						case 'delete' :
+							break;
+						
+						default : $whatToSelect .= $column->DBname.', ';
+							break;
+					}						
+				}
+				$whatToSelect = substr($whatToSelect, 0, -2);
+			
+			
+									
+				/*** wenn jetzt vom user auch noch sortierverhalten festgelegt werden
+						der User kann nur den ersten Sortierparameter Šndern.				 ***/
+				$userSort = '';
+				$userOrderBy = '';
+				$sortASC = '';
+				$sortDESC = '';
+				
+				if(isset($_POST['sort']))
+				{
+					$userSort = $_POST['sort'];
+					$userOrderBy = $_POST['orderby'];
+					
+					if($userSort == 'ASC')
+						$sortASC = $userOrderBy;
+					elseif($userSort == 'DESC')
+						$sortDESC = $userOrderBy;
+				}
+				
+				
+				//wenn sort auch gesetzt ist
+				$sort = '';
+				if(isset($this->values['sort']))
+					$sort = ' '.$this->values['sort'];
+				
+				//ich kann entweder eine variable oder ein array von variablen angeben, dies muss unterschiedlich behandelt werden
+				$orderByString = '';
+				if(isset($this->values['orderby']))
+				{
+					if(is_array($this->values['orderby']))
+					{
+						//wenn der/die User sortiert
+						if($userSort != '' && $userOrderBy != '')
+						{
+							$this->values['orderby'][0] = $userOrderBy;
+							$sort = $userSort;
+						}
+						
+						$bys = '';	
+						foreach($this->values['orderby'] as $by)
+						{
+							$bys .= $by.' '.$sort.', ';
+						}
+						$bys = substr($bys, 0, -2);
+
+					}
+					else
+					{
+						//wenn der/die User sortiert
+						if($userSort != '' && $userOrderBy != '')
+						{
+							$this->values['orderby'] = $userOrderBy;
+							$sort = $userSort;
+						}
+						
+						$bys = $this->values['orderby'].' '.$sort;
+					}
+					
+					$orderByString = ' ORDER BY '.$bys;
+					
+					
+				}
+				
+				
+				//hier die daten aus der DB holen (und das Limit beachten!) wenn orderby und sort gesetzt ist, wird dies auch beachtet
+				$getContent->setQuery('SELECT '.$whatToSelect.' FROM '.$this->databaseTable." ".$this->where." ".$orderByString.' LIMIT '.($lstart-1).','.$lend);
+				$getContent->execute();
+				//wenn wir einen fehler haben
+				if($getCount->getError() != '')
+					$this->dataMAObject->addError('Databaseerror: '.$getCount->getError());
+				
+				
+				/*************************** FILL TEMPLATE *************************/
+				//ich Ÿbergebe die Werte an mein Tempalate
+				$list->assign('limit', $this->limit);														// navigation limit
+				$list->assign('lall', $getCount->getValue('count'));						// navigation number of all entries
+				$list->assign('lstart', $lstart);																// navigation limit-start 
+				$list->assign('lend', $lend);																		// navigation limit-end 
+				$list->assign('strings', $this->strings);												// defined strings
+				$list->assign('path', $path);																		// path for links
+				$list->assign('showAddButton', $this->values['showAddButton']);	// show or hide addButton
+				$list->assign('columns', $this->columns);												// all columns
+				$list->assign('indexColumn', $this->indexColumn);								// the index
+				$list->assign('contentRows', $getContent->getArray());					// the entries
+				$list->assign('sortASC', $sortASC);															// wenn sortiert wurde
+				$list->assign('sortDESC', $sortDESC);															// wenn sortiert wurde
+				
+				
+				
+				
+				/*************************** RETURN TEMPLATE *************************/
+				if($this->template != '')
+					return $list->fetch($TWIDOO['includepath'].'/templates/'.$this->template);
+				else
+					return $list->fetch($TWIDOO['includepath'].'/templates/output.datalist.tpl');
+			
+			break;
+			
+			
+			
+			
+	
+	
+	
+				
+			
+			
+			
+			/*********** CASE ADD ***************/
+			case 'add': 
+
+				$addForm = new twidoo_form('add');
+				$add = new Smarty;
+			
+			
+				/*************************** CONFIGURE TWIDOO_FORM *************************/
+				//pflichtfelder setzten
+				foreach($this->columns as $column)
+				{
+					if($column->required)
+						$addForm->setRequired($column->DBname);
+					
+					if($column->type == 'date')
+						$addForm->setRule($column->DBname, 'valid', 'date');
+					
+					if($column->type == 'file')
+					{
+						$mediaFiles = new twidoo_filesystem($column->values['path']);
+						$column->addValue('dirarray', $mediaFiles->getArray('sort'));
+						$addForm->setFile($column->DBname);				
+					}
+				}
+								
+				foreach($addForm->getErrors() as $field => $errors)
+				{
+					foreach($errors as $error)
+					{
+						$type = '';
+						if($error == 'empty')
+							$type = 'Feld darf nicht leer sein!';
+						elseif($error == 'notvalid')
+							$type = 'Diese Eingabe wird nicht akzeptiert!';
+							
+						$this->dataMAObject->addWarning('Fehler bei Feld '.$this->columns[$field]->showName.': '.$type);
+					}
+				}
+				
+				$saved = false;
+				
+				/*************************** IF FORM DONE *************************/
+				if($addForm->formDone())
+				{
+					$add->assign('formdone', true);
+					//die SQL-sets zusammenbauen
+					$sqlSaveSet = '';
+					
+					foreach($this->columns as $column)
+					{
+						switch($column->type)
+						{
+							case 'date': 
+									//das datum in einen mysql timestamp umwandeln
+									$day = substr($addForm->getValue($column->DBname), 0, 2);
+									$month = substr($addForm->getValue($column->DBname), 3, 2);
+									$year = substr($addForm->getValue($column->DBname), 6, 4);
+									$sqlSaveSet .= $column->DBname.' = "'.$year.'-'.$month.'-'.$day.' 00:00:00", ';
+								break;
+							
+							case 'datetime': 
+									//das datum & die uhrzeit in einen mysql timestamp umwandeln
+									$day = substr($addForm->getValue($column->DBname), 0, 2);
+									$month = substr($addForm->getValue($column->DBname), 3, 2);
+									$year = substr($addForm->getValue($column->DBname), 6, 4);
+									$hour = substr($addForm->getValue($column->DBname), 13, 2);
+									$minute = substr($addForm->getValue($column->DBname), 16, 2);
+									$sqlSaveSet .= $column->DBname.' = "'.$year.'-'.$month.'-'.$day.' '.$hour.':'.$minute.':00", ';
+								break;
+							
+							case 'delete' :
+								break;
+							
+							case 'variable':
+								$sqlSaveSet .= $column->DBname.' = "'.$column->values['wert'].'", ';
+								break;
+							
+							case 'text':
+										$text = str_replace("\n", "<br />", $addForm->getValue($column->DBname));
+										$sqlSaveSet .= $column->DBname.' = "'.$text.'", ';	
+									break;
+							
+							default : $sqlSaveSet .= $column->DBname.' = "'.$addForm->getValue($column->DBname).'", ';
+								break;
+						}
+					}
+					
+					$sqlSaveSet = substr($sqlSaveSet, 0, -2);
+
+					$saveSql = new twidoo_sql;
+					$saveSql->setQuery('INSERT INTO '.$this->databaseTable.' SET '.$sqlSaveSet);
+					$saveSql->execute();
+					
+					if($saveSql->getError() == '')
+					{
+						$this->dataMAObject->addSuccess($this->strings['success']);
+						$saved = true;
+					}
+					else
+					{
+						$this->dataMAObject->addError($this->strings['failed']);
+					}
+				}
+				
+				
+				
+				/*************************** FILL TEMPLATE *************************/
+				$add->assign('saved', $saved);											// wenn das Speichern funktioniert hat
+				$add->assign('columns', $this->columns);						// die Spalten an das Template Ÿbergeben
+				$add->assign('path', $path);												// den Path an das Template Ÿbergeben
+				$add->assign('strings', $this->strings);						// strings Ÿbergeben
+				$add->assign('formerrors', $addForm->getErrors());	// Formerros fŸr das Formular
+					
+				
+				
+				
+				/*************************** RETURN TEMPLATE *************************/
+				if($this->template != '')
+					return $add->fetch($TWIDOO['includepath'].'/templates/'.$this->template);
+				else
+					return $add->fetch($TWIDOO['includepath'].'/templates/output.addform.tpl');
+	
+			break;
+			
+			
+			/*********** CASE EDIT ***************/
+			case 'edit': 
+								
+				$edit = new Smarty;
+				$editForm = new twidoo_form('edit');
+				
+				
+				
+				
+				/*************************** CONFIGURE TWIDOO_FORM *************************/
+				//pflichtfelder setzten
+				foreach($this->columns as $column)
+				{
+					if($column->required)
+						$editForm->setRequired($column->DBname);
+					
+					if($column->type == 'date')
+						$editForm->setRule($column->DBname, 'valid', 'date');
+				}
+				
+				
+				
+				
+				/*************************** GET VALUES OF CUR DATAROW *************************/
+				$formValues = '';
+				foreach($this->columns as $column)
+				{
+					if($column->edit && $column->type != 'delete')
+						$formValues .= $column->DBname.', ';
+				}
+				$formValues = substr($formValues, 0, -2);
+				
+				$getValues = new twidoo_sql;
+				$getValues->setQuery('SELECT '.$formValues.' FROM '.$this->databaseTable.' WHERE '.$this->indexColumn.' = '.$_POST[$this->indexColumn]);
+				$getValues->execute();
+				
+				$values = $getValues->getArray();
+				
+				//wenn wir einen fehler haben
+				if($getValues->getError() != '')
+					$this->dataMAObject->addError('Databaseerror: '.$getValues->getError());
+				
+				
+				foreach($editForm->getErrors() as $field => $errors)
+				{
+					foreach($errors as $error)
+					{
+						$type = '';
+						if($error == 'empty')
+							$type = 'Feld darf nicht leer sein!';
+						elseif($error == 'notvalid')
+							$type = 'Diese Eingabe wird nicht akzeptiert!';
+							
+						$this->dataMAObject->addWarning('Fehler bei Feld '.$this->columns[$field]->showName.': '.$type);
+					}
+				}
+
+
+				/*************************** IF FROM DONE *************************/			
+				if($editForm->formDone())
+				{
+					new twidoo_log($editForm);
+					//formular wurde ausgefŸllt
+					$edit->assign('formdone', true);
+					
+					//die sql-Sets bauen
+					$sqlSaveSet = '';
+					foreach($this->columns as $column)
+					{
+						if($column->edit)
+						{
+							switch($column->type)
+							{
+								case 'date': 
+										//das datum in einen mysql timestamp umwandeln
+										$day = substr($editForm->getValue($column->DBname), 0, 2);
+										$month = substr($editForm->getValue($column->DBname), 3, 2);
+										$year = substr($editForm->getValue($column->DBname), 6, 4);
+										$sqlSaveSet .= $column->DBname.' = "'.$year.'-'.$month.'-'.$day.' 00:00:00", ';
+									break;
+								
+								case 'datetime': 
+										//das datum in einen mysql timestamp umwandeln
+										$day = substr($editForm->getValue($column->DBname), 0, 2);
+										$month = substr($editForm->getValue($column->DBname), 3, 2);
+										$year = substr($editForm->getValue($column->DBname), 6, 4);
+										$hour = substr($editForm->getValue($column->DBname), 13, 2);
+										$minute = substr($editForm->getValue($column->DBname), 16, 2);
+										$sqlSaveSet .= $column->DBname.' = "'.$year.'-'.$month.'-'.$day.' '.$hour.':'.$minute.':00", ';
+									break;
+								
+								
+								case 'delete' :
+									break;
+								
+								case 'variable':
+									$sqlSaveSet .= $column->DBname.' = "'.$column->values['wert'].'", ';
+									break;
+								
+								case 'text':
+										$text = str_replace("\n", "<br />", $editForm->getValue($column->DBname));
+										$sqlSaveSet .= $column->DBname.' = "'.$text.'", ';
+										
+									break;
+								
+								default : $sqlSaveSet .= $column->DBname.' = "'.$editForm->getValue($column->DBname).'", ';
+									break;
+							}
+						}
+					}
+					$sqlSaveSet = substr($sqlSaveSet, 0, -2);
+					
+							
+					//alle €nderungen werden jetzt gespeichert
+					$saveSql = new twidoo_sql;
+					$saveSql->setQuery('UPDATE '.$this->databaseTable.' SET '.$sqlSaveSet.' WHERE '.$this->indexColumn.' = '.$_POST[$this->indexColumn]);
+					
+					$saveSql->execute();
+									
+					if($saveSql->getError() == '')
+					{
+						$this->dataMAObject->addSuccess($this->strings['success']);
+						$saved = true;
+					}
+					else
+					{
+						$this->dataMAObject->addError($this->strings['failed']);
+						$saved = false;
+					}
+				}
+				
+				
+				
+				/*************************** FILL TEMPLATE *************************/
+				$edit->assign('saved', $saved);												// wenn das speichern geklappt hat
+				$edit->assign('indexColumn', $this->indexColumn);								// the index
+				$edit->assign('columns', $this->columns);							// die Spalten an das Template Ÿbergeben
+				$edit->assign('strings', $this->strings);							// strings Ÿbergeben
+				$edit->assign('values', $values[0]);									// Die Werte des Datensatzes, die ich bearbeiten will
+				$edit->assign('path', $path);													// Path (fŸr Links)
+				$edit->assign('formerrors', $editForm->getErrors());	// Formerros
+				
+				
+				
+				
+				/*************************** RETURN TEMPLATE *************************/
+				//den output des templates zurŸckgeben
+				if($this->template != '')
+					return $edit->fetch($TWIDOO['includepath'].'/templates/'.$this->template);
+				else
+					return $edit->fetch($TWIDOO['includepath'].'/templates/output.editform.tpl');
+				
+			break;
+
+
+
+
+
+
+
+
+			
+			
+			case 'delete':
+
+				$delete = new Smarty;
+				
+				
+				
+				/*************************** IF REALY DELETE *************************/
+				//wenn der bestŠtigungsbutton gedrŸckt wurde			
+				if(isset($_POST[$this->indexColumn]) && $_POST['lastChance'] == 'over' && $_POST['delete'] == 'true')
+				{
+					//hier fŸhren wir den SQL befehl zum lšschen aus
+					$deleteSql = new twidoo_sql;
+					$deleteSql->setQuery('DELETE FROM '.$this->databaseTable.' WHERE '.$this->indexColumn.' = "'.$_POST[$this->indexColumn].'"');
+					$deleteSql->execute();
+					
+					if($deleteSql->getError() == '')
+					{
+						$this->dataMAObject->addWarning($this->strings['success']);
+						$deleted = true;
+					}
+					else
+					{
+						$this->dataMAObject->addError($this->strings['failed']);
+						$deleted = false;
+					}
+					
+					$delete->assign('deleted', $deleted);
+				}
+				
+				
+				
+				
+				/*************************** FILL TEMPLATE *************************/
+				$delete->assign('path', $path);							// path
+				$delete->assign('id', $this->indexColumn);	// index
+				$delete->assign('strings', $this->strings); // strings
+				
+				
+				
+				
+				/*************************** RETURN TEMPLATE *************************/				
+				if($this->template != '')
+					return $delete->fetch($TWIDOO['includepath'].'/templates/'.$this->template);
+				else
+					return $delete->fetch($TWIDOO['includepath'].'/templates/output.delete.tpl');
+					
+			break;
+			
+			
+			
+			
+			
+			case 'dataselect':
+
+				$dataselect = new Smarty;
+				
+				
+				/************** IF FORM SEND ***************/
+				$dataselectForm = new twidoo_form('dataselect');
+				if($dataselectForm->formDone())
+				{
+					//Wenn Form-Done: ausgewählte Bilder in die DB aufnehmen	
+					foreach($dataselectForm->getValue('images') as $img)
+					{
+						$insertPic = new twidoo_sql();
+						$insertPic->setQuery('INSERT INTO fotos (pfad, galerie, status) VALUES(:img, :galerie, 1)');
+						$insertPic->bindParam('img', $img);
+						$insertPic->bindParam('galerie', $this->values['galerieID']);
+						$insertPic->execute();
+					}					
+
+				}
+				
+				$dataArray = array();
+				
+				//Alle Objekte aus dem Pfad holen:
+				 $handle = @opendir($this->values['path']);
+			   
+			   if(is_resource($handle))
+			   {
+			   		//für jedes Bild durchchecken
+			   		while(($file = readdir($handle)) !== false)
+			   		{
+			      	if(preg_match('~^\.{1,2}$~', $file))
+			      	{
+			        	continue;
+			        }
+			 				
+			 			//sufix herausfinden
+			 				$sufixa = explode(".", $file);
+			 				$sufix = end($sufixa);
+			 				
+			 			//findet heraus, ob es ein Bild ist
+			 				$isImage = false;
+			 				$imageTypes = array('gif', 'jpg', 'jpeg', 'png');
+			 				foreach($imageTypes as $imageType)
+			 				{
+			 					if($imageType == strtolower($sufix))
+			 						$isImage = true;
+			 				}
+			 			
+			 			//schaut, ob dieses Bild bereits in der DB ist
+							$fotosinG = new twidoo_sql;
+							$fotosinG->setQuery('SELECT id FROM fotos WHERE pfad=:img');
+							$fotosinG->bindParam('img', $file);
+							$fotosinG->execute();			 			
+			 				
+			        if(!is_dir($dir.$file) && $isImage && $fotosinG->rowCount() == 0)
+			        {
+			        	array_push($dataArray, $file);
+			        }
+						}
+					
+						closedir($handle);
+					}
+							
+				
+				
+				
+				
+							
+				/*************************** FILL TEMPLATE *************************/
+				$dataselect->assign('path', $path);							// path
+				$dataselect->assign('id', $this->indexColumn);	// index
+				$dataselect->assign('strings', $this->strings); // strings
+				$dataselect->assign('dataPath', $this->values['path']); // strings
+				$dataselect->assign('data', $dataArray); // strings
+				
+				
+				
+				/*************************** RETURN TEMPLATE *************************/				
+				if($this->template != '')
+					return $dataselect->fetch($TWIDOO['includepath'].'/templates/'.$this->template);
+				else
+					return $dataselect->fetch($TWIDOO['includepath'].'/templates/output.dataselect.tpl');
+					
+			break;
+			
+			
+			
+			/*************** DEFAULT ****************/
+			default : return '';
+				break;
+		}
+		
+	}
+
+
+}
+
+
+
+?>
